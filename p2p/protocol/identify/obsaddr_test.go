@@ -318,8 +318,11 @@ func TestObservedAddrFiltering(t *testing.T) {
 
 	b6 := ma.StringCast("/ip4/1.2.3.11/tcp/1237")
 	b7 := ma.StringCast("/ip4/1.2.3.12/tcp/1237")
-	b8 := ma.StringCast("/ip4/1.2.3.12/tcp/1238")
-	b9 := ma.StringCast("/ip4/1.2.3.12/tcp/1239")
+
+	// These are all observers in the same group.
+	b8 := ma.StringCast("/ip4/1.2.3.13/tcp/1237")
+	b9 := ma.StringCast("/ip4/1.2.3.13/tcp/1238")
+	b10 := ma.StringCast("/ip4/1.2.3.13/tcp/1239")
 
 	peers := []peer.ID{
 		harness.add(b1),
@@ -330,8 +333,10 @@ func TestObservedAddrFiltering(t *testing.T) {
 
 		harness.add(b6),
 		harness.add(b7),
+
 		harness.add(b8),
 		harness.add(b9),
+		harness.add(b10),
 	}
 	for i := 0; i < 4; i++ {
 		harness.observe(it1, peers[i])
@@ -351,28 +356,39 @@ func TestObservedAddrFiltering(t *testing.T) {
 	require.Contains(t, addrs, it1)
 	require.Contains(t, addrs, it7)
 
-	// Highest number of observations still win.
+	// Bump the number of observations so 1 & 7 have 7 observations.
 	harness.observe(it1, peers[5])
+	harness.observe(it1, peers[6])
 	harness.observe(it7, peers[5])
-	harness.observe(it2, peers[6])
-	harness.observe(it3, peers[6])
+	harness.observe(it7, peers[6])
+
+	// Add an observation from IP 1.2.3.13
+	// 2 & 3 now have 5 observations
+	harness.observe(it2, peers[7])
+	harness.observe(it3, peers[7])
 
 	addrs = harness.oas.Addrs()
 	require.Len(t, addrs, 2)
 	require.Contains(t, addrs, it1)
 	require.Contains(t, addrs, it7)
 
-	// We should prefer inbound observations. And inbound should trump.
-	harness.observeInbound(it2, peers[7])
-	harness.observeInbound(it3, peers[7])
+	// Add an inbound observation from IP 1.2.3.13, it should override the
+	// existing observation and it should make these addresses win even
+	// though we have fewer observations.
+	//
+	// 2 & 3 now have 6 observations.
+	harness.observeInbound(it2, peers[8])
+	harness.observeInbound(it3, peers[8])
 	addrs = harness.oas.Addrs()
 	require.Len(t, addrs, 2)
 	require.Contains(t, addrs, it2)
 	require.Contains(t, addrs, it3)
 
-	// Shouldn't downgrade observation.
-	harness.observe(it2, peers[8])
-	harness.observe(it3, peers[8])
+	// Adding another observation shouldn't "downgrade" it.
+	//
+	// 2 & 3 now have 7 observations.
+	harness.observe(it2, peers[9])
+	harness.observe(it3, peers[9])
 	addrs = harness.oas.Addrs()
 	require.Len(t, addrs, 2)
 	require.Contains(t, addrs, it2)
