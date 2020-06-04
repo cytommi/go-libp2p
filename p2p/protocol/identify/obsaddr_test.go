@@ -362,7 +362,7 @@ func TestObservedAddrFiltering(t *testing.T) {
 	require.Contains(t, addrs, it2)
 	require.Contains(t, addrs, it3)
 
-	// Adding another observation shouldn't "downgrade" it.
+	// Adding an outbound observation shouldn't "downgrade" it.
 	//
 	// 2 & 3 now have 7 observations.
 	harness.observe(it2, peers[9])
