@@ -49,11 +49,34 @@ func (h *harness) conn(observer peer.ID) network.Conn {
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	if c.Stat().Direction != network.DirOutbound {
+		h.t.Fatal("expected conn direction to be outbound")
+	}
+	return c
+}
+
+func (h *harness) connInbound(observer peer.ID) network.Conn {
+	c, err := h.mocknet.ConnectPeers(observer, h.host.ID())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+
+	c = mocknet.ConnComplement(c)
+	if c.Stat().Direction != network.DirInbound {
+		h.t.Fatal("expected conn direction to be inbound")
+	}
 	return c
 }
 
 func (h *harness) observe(observed ma.Multiaddr, observer peer.ID) network.Conn {
 	c := h.conn(observer)
+	h.oas.Record(c, observed)
+	time.Sleep(50 * time.Millisecond) // let the worker run
+	return c
+}
+
+func (h *harness) observeInbound(observed ma.Multiaddr, observer peer.ID) network.Conn {
+	c := h.connInbound(observer)
 	h.oas.Record(c, observed)
 	time.Sleep(50 * time.Millisecond) // let the worker run
 	return c
@@ -75,6 +98,7 @@ func newHarness(ctx context.Context, t *testing.T) harness {
 		oas:     identify.NewObservedAddrManager(ctx, h),
 		mocknet: mn,
 		host:    h,
+		t:       t,
 	}
 }
 
@@ -292,7 +316,23 @@ func TestObservedAddrFiltering(t *testing.T) {
 	b4 := ma.StringCast("/ip4/1.2.3.9/tcp/1237")
 	b5 := ma.StringCast("/ip4/1.2.3.10/tcp/1237")
 
-	peers := []peer.ID{harness.add(b1), harness.add(b2), harness.add(b3), harness.add(b4), harness.add(b5)}
+	b6 := ma.StringCast("/ip4/1.2.3.11/tcp/1237")
+	b7 := ma.StringCast("/ip4/1.2.3.12/tcp/1237")
+	b8 := ma.StringCast("/ip4/1.2.3.12/tcp/1238")
+	b9 := ma.StringCast("/ip4/1.2.3.12/tcp/1239")
+
+	peers := []peer.ID{
+		harness.add(b1),
+		harness.add(b2),
+		harness.add(b3),
+		harness.add(b4),
+		harness.add(b5),
+
+		harness.add(b6),
+		harness.add(b7),
+		harness.add(b8),
+		harness.add(b9),
+	}
 	for i := 0; i < 4; i++ {
 		harness.observe(it1, peers[i])
 		harness.observe(it2, peers[i])
@@ -311,4 +351,30 @@ func TestObservedAddrFiltering(t *testing.T) {
 	require.Contains(t, addrs, it1)
 	require.Contains(t, addrs, it7)
 
+	// Highest number of observations still win.
+	harness.observe(it1, peers[5])
+	harness.observe(it7, peers[5])
+	harness.observe(it2, peers[6])
+	harness.observe(it3, peers[6])
+
+	addrs = harness.oas.Addrs()
+	require.Len(t, addrs, 2)
+	require.Contains(t, addrs, it1)
+	require.Contains(t, addrs, it7)
+
+	// We should prefer inbound observations. And inbound should trump.
+	harness.observeInbound(it2, peers[7])
+	harness.observeInbound(it3, peers[7])
+	addrs = harness.oas.Addrs()
+	require.Len(t, addrs, 2)
+	require.Contains(t, addrs, it2)
+	require.Contains(t, addrs, it3)
+
+	// Shouldn't downgrade observation.
+	harness.observe(it2, peers[8])
+	harness.observe(it3, peers[8])
+	addrs = harness.oas.Addrs()
+	require.Len(t, addrs, 2)
+	require.Contains(t, addrs, it2)
+	require.Contains(t, addrs, it3)
 }
